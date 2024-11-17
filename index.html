@@ -1,16 +1,221 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Descend: Real Time Chat</title>
-    <link rel="stylesheet" href="style.css">
+    <title>WebSocket Chat</title>
+    <style>
+        #messages { 
+            height: 300px; 
+            border: 1px solid black; 
+            overflow-y: scroll; 
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .error { color: red; }
+        .success { color: green; }
+        .received { color: blue; }
+        .sent { color: purple; }
+        #status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status-error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .status-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .message-container {
+            margin: 5px 0;
+        }
+        .username {
+            font-weight: bold;
+            margin-right: 8px;
+        }
+    </style>
 </head>
 <body>
-    <div id="chat-box">
-        <div id="messages"></div>
-        <input type="text" id="input" placeholder="Type a message..." autofocus>
-    </div>
-    <script src="script.js"></script>
+    <div id="status"></div>
+    <input type="text" id="usernameInput" placeholder="Enter your username" style="margin-bottom: 10px;">
+    <div id="messages"></div>
+    <input type="text" id="messageInput" placeholder="Type a message">
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        const messages = document.getElementById('messages');
+        const messageInput = document.getElementById('messageInput');
+        const usernameInput = document.getElementById('usernameInput');
+        const status = document.getElementById('status');
+        let ws;
+        let currentUserId;
+
+        function updateStatus(message, isError = false) {
+            status.textContent = message;
+            status.className = isError ? 'status-error' : 'status-success';
+            console.log(`Status: ${message}`);
+        }
+
+        function addMessage(text, type = 'normal', username = null) {
+            const container = document.createElement('div');
+            container.className = 'message-container';
+
+            if (username) {
+                const usernameSpan = document.createElement('span');
+                usernameSpan.className = 'username';
+                usernameSpan.textContent = username + ':';
+                container.appendChild(usernameSpan);
+            }
+
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = text;
+            messageSpan.className = type;
+            container.appendChild(messageSpan);
+
+            messages.appendChild(container);
+            messages.scrollTop = messages.scrollHeight;
+            console.log(`Message (${type}):`, text);
+        }
+
+        async function checkServer() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/health');
+                if (!response.ok) {
+                    throw new Error(`Server health check failed: ${response.status}`);
+                }
+                return true;
+            } catch (err) {
+                updateStatus(`Server not accessible: ${err.message}`, true);
+                return false;
+            }
+        }
+
+        async function connect() {
+            if (!(await checkServer())) {
+                setTimeout(connect, 5000);
+                return;
+            }
+
+            try {
+                if (!usernameInput.value) {
+                    updateStatus('Please enter a username', true);
+                    return;
+                }
+
+                currentUserId = Math.floor(Math.random() * 10000);
+                updateStatus('Attempting to register...');
+                
+                const registerResponse = await fetch('http://127.0.0.1:8000/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: currentUserId,
+                        topic: "general"
+                    })
+                });
+
+                if (!registerResponse.ok) {
+                    throw new Error(`Registration failed: ${registerResponse.status}`);
+                }
+
+                const data = await registerResponse.json();
+                console.log('Registration response:', data);
+
+                const wsUrl = data.url.replace('http://', 'ws://');
+                updateStatus(`Connecting to WebSocket at ${wsUrl}...`);
+
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    updateStatus('WebSocket Connected!');
+                    ws.send(JSON.stringify({
+                        topics: ["general"]
+                    }));
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const messageData = JSON.parse(event.data);
+                        const isSentByMe = messageData.user_id === currentUserId;
+                        addMessage(
+                            messageData.message,
+                            isSentByMe ? 'sent' : 'received',
+                            messageData.username
+                        );
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                        addMessage(event.data, 'received');
+                    }
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket closed. Retrying...');
+                    setTimeout(connect, 5000);
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    updateStatus('WebSocket error occurred', true);
+                };
+                
+
+            } catch (err) {
+                console.error('Connection error:', err);
+                updateStatus(`Connection failed: ${err.message}`, true);
+                setTimeout(connect, 5000);
+            }
+        }
+
+        async function sendMessage() {
+            if (!messageInput.value) return;
+            if (!usernameInput.value) {
+                updateStatus('Please enter a username', true);
+                return;
+            }
+
+            try {
+                updateStatus('Sending message...');
+                const response = await fetch('http://127.0.0.1:8000/publish', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        topic: "general",
+                        user_id: currentUserId,
+                        message: messageInput.value,
+                        username: usernameInput.value
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Send failed: ${response.status}`);
+                }
+
+                messageInput.value = '';
+                updateStatus('Message sent successfully');
+
+            } catch (err) {
+                console.error('Send error:', err);
+                updateStatus(`Failed to send message: ${err.message}`, true);
+            }
+        }
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                connect();
+            }
+        });
+    </script>
 </body>
 </html>

@@ -5,6 +5,7 @@ use handler::TopicActionRequest;
 use tokio::sync::{mpsc, RwLock};
 use warp::{ws::Message, Filter, Rejection};
 use crate::handler::{add_topic, remove_topic};
+use warp::http::Method;
 
 mod handler;
 mod ws;
@@ -23,6 +24,25 @@ pub struct Client {
 async fn main() {
     let clients: Clients = Arc::new(RwLock::new(HashMap::new()));
 
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_methods(&[
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers(vec![
+            "Content-Type",
+            "Authorization",
+            "Accept",
+            "Origin",
+            "Access-Control-Request-Method",
+            "Access-Control-Request_Headers",
+        ])
+        .build();
+
     let health_route = warp::path!("health").and_then(handler::health_handler);
 
     let register = warp::path("register");
@@ -38,6 +58,7 @@ async fn main() {
             .and_then(handler::unregister_handler));
 
     let publish = warp::path!("publish")
+        .and(warp::post())
         .and(warp::body::json())
         .and(with_clients(clients.clone()))
         .and_then(handler::publish_handler);
@@ -68,7 +89,7 @@ async fn main() {
         .or(publish)
         .or(add_topic_route)
         .or(remove_topic_route)
-        .with(warp::cors().allow_any_origin());
+        .with(cors);
 
 
 

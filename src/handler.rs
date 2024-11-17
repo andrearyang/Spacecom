@@ -1,6 +1,7 @@
 use crate::{ws, Client, Clients, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use warp::reply::with_status;
 use warp::{http::StatusCode, reply::json, ws::Message, Reply};
 #[derive(Deserialize, Debug)]
 pub struct RegisterRequest {
@@ -25,9 +26,27 @@ pub struct Event {
     topic: String,
     user_id: Option<usize>,
     message: String,
+    username: Option<String>,
+}
+
+async fn handle_message(client: &Client, msg: Message) {
+    let msg_str = msg.to_str().unwrap_or("");
+
+    if let Some(sender) = &client.sender {
+        // Try sending the message to the client sender
+        if let Err(e) = sender.send(Ok(Message::text(msg_str.to_string()))) {
+            eprintln!("Error sending message: {:?}", e);
+        }
+    }
 }
 
 pub async fn publish_handler(body: Event, clients: Clients) -> Result<impl Reply> {
+    let message = serde_json::json!({
+        "message": body.message,
+        "user_id": body.user_id,
+        "username": body.username
+    }).to_string();
+
     clients
         .read()
         .await
@@ -39,11 +58,11 @@ pub async fn publish_handler(body: Event, clients: Clients) -> Result<impl Reply
         .filter(|(_, client)| client.topics.contains(&body.topic))
         .for_each(|(_, client)| {
             if let Some(sender) = &client.sender {
-                let _ = sender.send(Ok(Message::text(body.message.clone())));
+                let _ = sender.send(Ok(Message::text(message.clone())));
             }
         });
 
-    Ok(StatusCode::OK)
+    Ok(with_status("Message published", StatusCode::OK))
 }
 
 pub async fn register_handler(body: RegisterRequest, clients: Clients) -> Result<impl Reply> {
@@ -84,8 +103,6 @@ pub async fn ws_handler(ws: warp::ws::Ws, id: String, clients: Clients) -> Resul
 pub async fn health_handler() -> Result<impl Reply> {
     Ok(StatusCode::OK)
 }
-
-
 
 pub async fn add_topic(body: TopicActionRequest, clients: Clients) -> Result<impl Reply> {
     let mut clients_write = clients.write().await;
