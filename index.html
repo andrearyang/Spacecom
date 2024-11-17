@@ -9,11 +9,26 @@
             overflow-y: scroll; 
             padding: 10px;
             margin: 10px 0;
+            background-color: #f5f5f5;
         }
         .error { color: red; }
         .success { color: green; }
-        .received { color: blue; }
-        .sent { color: purple; }
+        .received { 
+            color: blue;
+            background-color: #e3f2fd;
+            padding: 5px 10px;
+            border-radius: 10px;
+            margin: 5px 0;
+            display: inline-block;
+        }
+        .sent { 
+            color: purple;
+            background-color: #f3e5f5;
+            padding: 5px 10px;
+            border-radius: 10px;
+            margin: 5px 0;
+            display: inline-block;
+        }
         #status {
             margin: 10px 0;
             padding: 10px;
@@ -29,19 +44,47 @@
         }
         .message-container {
             margin: 5px 0;
+            clear: both;
+        }
+        .message-container.sent-container {
+            text-align: right;
         }
         .username {
             font-weight: bold;
             margin-right: 8px;
+            display: inline-block;
+        }
+        .chat-input-container {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        #messageInput {
+            flex-grow: 1;
+            padding: 5px;
+        }
+        button {
+            padding: 5px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
         }
     </style>
 </head>
 <body>
     <div id="status"></div>
-    <input type="text" id="usernameInput" placeholder="Enter your username" style="margin-bottom: 10px;">
+    <input type="text" id="usernameInput" placeholder="Enter your username" style="margin-bottom: 10px; padding: 5px;">
+    <button onclick="connect()">Connect</button>
     <div id="messages"></div>
-    <input type="text" id="messageInput" placeholder="Type a message">
-    <button onclick="sendMessage()">Send</button>
+    <div class="chat-input-container">
+        <input type="text" id="messageInput" placeholder="Type a message">
+        <button onclick="sendMessage()">Send</button>
+    </div>
 
     <script>
         const messages = document.getElementById('messages');
@@ -50,6 +93,7 @@
         const status = document.getElementById('status');
         let ws;
         let currentUserId;
+        let isConnected = false;
 
         function updateStatus(message, isError = false) {
             status.textContent = message;
@@ -60,6 +104,9 @@
         function addMessage(text, type = 'normal', username = null) {
             const container = document.createElement('div');
             container.className = 'message-container';
+            if (type === 'sent') {
+                container.className += ' sent-container';
+            }
 
             if (username) {
                 const usernameSpan = document.createElement('span');
@@ -75,7 +122,6 @@
 
             messages.appendChild(container);
             messages.scrollTop = messages.scrollHeight;
-            console.log(`Message (${type}):`, text);
         }
 
         async function checkServer() {
@@ -131,6 +177,7 @@
                 ws = new WebSocket(wsUrl);
 
                 ws.onopen = () => {
+                    isConnected = true;
                     updateStatus('WebSocket Connected!');
                     ws.send(JSON.stringify({
                         topics: ["general"]
@@ -140,12 +187,14 @@
                 ws.onmessage = (event) => {
                     try {
                         const messageData = JSON.parse(event.data);
-                        const isSentByMe = messageData.user_id === currentUserId;
-                        addMessage(
-                            messageData.message,
-                            isSentByMe ? 'sent' : 'received',
-                            messageData.username
-                        );
+                        // Only display received messages, since sent messages are already displayed
+                        if (messageData.user_id !== currentUserId) {
+                            addMessage(
+                                messageData.message,
+                                'received',
+                                messageData.username
+                            );
+                        }
                     } catch (e) {
                         console.error('Error parsing message:', e);
                         addMessage(event.data, 'received');
@@ -153,7 +202,8 @@
                 };
 
                 ws.onclose = () => {
-                    console.log('WebSocket closed. Retrying...');
+                    isConnected = false;
+                    updateStatus('WebSocket disconnected. Reconnecting...', true);
                     setTimeout(connect, 5000);
                 };
 
@@ -161,7 +211,6 @@
                     console.error('WebSocket error:', error);
                     updateStatus('WebSocket error occurred', true);
                 };
-                
 
             } catch (err) {
                 console.error('Connection error:', err);
@@ -176,9 +225,16 @@
                 updateStatus('Please enter a username', true);
                 return;
             }
+            if (!isConnected) {
+                updateStatus('Not connected. Please connect first.', true);
+                return;
+            }
 
             try {
-                updateStatus('Sending message...');
+                const messageText = messageInput.value;
+                // Immediately display the sent message
+                addMessage(messageText, 'sent', usernameInput.value);
+
                 const response = await fetch('http://127.0.0.1:8000/publish', {
                     method: 'POST',
                     headers: {
@@ -187,7 +243,7 @@
                     body: JSON.stringify({
                         topic: "general",
                         user_id: currentUserId,
-                        message: messageInput.value,
+                        message: messageText,
                         username: usernameInput.value
                     })
                 });

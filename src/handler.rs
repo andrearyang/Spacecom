@@ -26,7 +26,7 @@ pub struct Event {
     topic: String,
     user_id: Option<usize>,
     message: String,
-    username: Option<String>,
+    username: Option<String>, 
 }
 
 async fn handle_message(client: &Client, msg: Message) {
@@ -51,10 +51,6 @@ pub async fn publish_handler(body: Event, clients: Clients) -> Result<impl Reply
         .read()
         .await
         .iter()
-        .filter(|(_, client)| match body.user_id {
-            Some(v) => client.user_id == v,
-            None => true,
-        })
         .filter(|(_, client)| client.topics.contains(&body.topic))
         .for_each(|(_, client)| {
             if let Some(sender) = &client.sender {

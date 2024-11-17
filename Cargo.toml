@@ -1,19 +1,14 @@
+
 [package]
-name = "warp-ws-example"
-version = "0.1.0"
+name = "wsserver"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1.14"
-futures-util = "0.3"
-url = "2.5"
-structopt = "0.3"
-colored = "2.0"
+tokio = { version = "1.19.2", features = ["macros", "sync", "rt-multi-thread"] }
+tokio-stream = "0.1.9"
 warp = "0.3"
-serde = {version = "1.0", features = ["derive"]}
+serde = {version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-reqwest = { version = "0.11", features = ["json"]}
 futures = { version = "0.3", default-features = false }
-uuid = { version = "1.2", features = ["serde", "v4"]}
-
+uuid = { version = "1.1.2", features = ["serde", "v4"] }
